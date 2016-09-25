@@ -1,0 +1,117 @@
+---
+title: "DATA 605 - Assignment 4 - Matrix Inversion & Singular Value Decomposition"
+author: "Christopher Martin"
+date: "September 18, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: united
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: Matrix Inversion & Singular Value Decomposition
+---
+
+
+# Problem Set 1
+
+In this problem, we'll verify using R that SVD and Eigenvalues are related as worked out in the weekly module. Given a 3 × 2 matrix A
+
+$$A =
+\left(\begin{matrix}
+1 & 2 & 3\\
+-1 & 0 & 4
+\end{matrix}\right)
+$$
+
+Write code in R to compute $X = AA^T$ and $Y = A^T A$. Then, compute the eigenvalues and eigenvectors of **X** and **Y** using the built-in commands in R.
+
+```{r}
+A <- matrix(c(1,2,3,-1,0,4),nrow=2,byrow=TRUE)
+A
+
+#X = A * A^T
+X <- A %*% t(A)
+X
+
+#Y = A^T * A
+Y <- t(A) %*% A
+Y
+
+#calculate eigenvalues and eigenvectors of X
+x <- eigen(X)
+#eigenvalues of X
+x$val
+#eigenvectors X
+x$vec
+
+#calculate eigenvalues and eigenvectors of Y
+y <- eigen(Y)
+#eigenvalues of Y
+y$val
+#eigenvectors Y
+y$vec
+```
+
+Then, compute the left-singular, singular values, and right-singular vectors of **A** using the *svd* command. Examine the two sets of singular vectors and show that they are indeed eigenvectors of **X** and **Y**. In addition, the two non-zero eigenvalues (the 3rd value will be very close to zero, if not zero) of both **X** and **Y** are the same and are squares of the non-zero singular values of **A**.
+
+```{r}
+#compute singular value decomposition of A
+a <- svd(A)
+#left-singular vector
+a$u
+x$vec
+#singular-values
+a$d
+a$d^2
+x$val
+y$val[1:2]
+#right-singular vector
+a$v
+y$vec[1:3,1:2]
+```
+
+Your code should compute all these vectors and scalars and store them in variables. Please add enough comments in your code to show me how to interpret your steps.
+
+# Problem Set 2
+
+Using the procedure outlined in section 1 of the weekly handout, write a function to compute the inverse of a well-conditioned full-rank square matrix using co-factors. In order to compute the co-factors, you may use built-in commands to compute the determinant. Your function should have the following signature:
+
+$B = myinverse(A)$
+
+where **A** is a matrix and **B** is its inverse and **A×B** = **I**. The off-diagonal elements of I should be close to zero, if not zero. Likewise, the diagonal elements should be close to 1, if not 1. Small numerical precision errors are acceptable but the function myinverse should be correct and must use co-factors and determinant of **A** to compute the inverse.
+
+```{r}
+#test matrix
+A <- matrix(c(3,0,2,2,0,-2,0,1,1), ncol=3, byrow=TRUE)
+A
+
+myinverse <- function(matrixname){
+  m <- nrow(matrixname)
+  n <- ncol(matrixname)
+  C <- matrix(, nrow=m, ncol=n)
+  for(i in 1:m){
+    for(j in 1:n){
+      D <- A[-i,-j]
+      C[i,j] <- (-1)^(i+j) * det(D)
+    }
+  }
+  (1/det(matrixname)) * t(C)
+}
+
+B <- myinverse(A)
+B
+
+#check matrix I
+I <- B %*% A
+I
+round(I)
+```
+
