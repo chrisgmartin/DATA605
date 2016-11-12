@@ -1,0 +1,135 @@
+---
+title: "DATA 605 - Assignment 6 - Random Variables and Probability"
+author: "Christopher Martin"
+date: "October 2, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: Random Variables and Probability
+---
+
+# Problem Set 1
+
+1. When you roll a fair die 3 times, how many possible outcomes are there?
+
+```{r}
+#1 roll has 6 possible outcomes, while 3 rolls has:
+6 * 6 * 6
+```
+
+2. What is the probability of getting a sum total of 3 when you roll a die two times?
+
+```{r}
+#combinations: 1,2 ; 2,1
+round((2/6)*(1/6),4)
+#alternatively:
+round((1/6)*(1/6)+(1/6)*(1/6),4)
+```
+
+3. Assume a room of 25 strangers. What is the probability that two of them have the same birthday? Assume that all birthdays are equally likely and equal to 1=365 each. What happens to this probability when there are 50 people in the room?
+
+```{r}
+#each birthday is 1/365
+#25 people:
+round((1/365)*25,4)
+#50 people:
+round((1/365)*50,4)
+```
+
+
+# Problem Set 2
+
+Sometimes you cannot compute the probability of an outcome by measuring the sample space and examining the symmetries of the underlying physical phenomenon, as you could do when you rolled die or picked a card from a shuffled deck. You have to estimate probabilities by other means. For instance, when you have to compute the probability of various english words, it is not possible to do it by examination of the sample space as it is too large. You have to resort to empirical techniques to get a good enough estimate. One such approach would be to take a large corpus of documents and from those documents, count the number of occurrences of a particular character or word and then base your estimate on that.
+
+## Part 1
+Write a program to take a document in English and print out the estimated probabilities for each of the words that occur in that document. Your program should take in a file containing a large document and write out the probabilities of each of the words that appear in that document. Please remove all punctuation (quotes, commas, hyphens etc) and convert the words to lower case before you perform your calculations.
+
+Use the accompanying document for your testing purposes. Compare your probabilities of various words with the Time Magazine corpus: http://corpus.byu.edu/time/
+
+```{r}
+my_file <- "https://raw.githubusercontent.com/chrisgmartin/DATA605/master/assign6.sample.txt"
+
+library(stringr)
+library(knitr)
+
+#create table where each sentance is a row
+my_text <- scan(my_file, what="char", sep = "\n", strip.white = TRUE, encoding="UTF-8")
+
+#remove punctuation and numbers
+my_text <- str_replace_all(my_text, "[[:punct:]]", "")
+my_text <- str_replace_all(my_text, "[[:digit:]]", "")
+
+#lowercase all words
+my_text <- tolower(my_text)
+
+#splits each word
+my_text <- strsplit(my_text, "\\W+")
+
+#puts it all together on one big list
+my_text <- unlist(my_text)
+text_table <- table(my_text)
+
+#sort by frequency
+text_table <- sort(text_table, decreasing = TRUE)
+as.vector(text_table[1])
+
+#convert frequency table to a data frame with rows and columns
+text_table2 <- data.frame(0,1,2)
+for(i in 1:length(text_table)){
+  text_table2[i,1] <- rownames(text_table)[i]
+  text_table2[i,2] <- as.numeric(text_table[i])
+}
+text_table2[,3] <- text_table2[,2]/sum(text_table2[,2])
+colnames(text_table2) <- c("word","frequency","probability")
+kable(head(text_table2))
+#probability of a single word (example is first word in table: 'the')
+round(text_table2[1,2]/sum(text_table2[,2]),4)
+
+#probability of a single word given another word is present (example is 'for' given 'the')
+#since the two words are independent, only the probability of the second word is needed
+round(text_table2[4,2]/sum(text_table2[,2]),4)
+
+#probability of both words being present (example is 'for' and 'the')
+round((text_table2[1,2]/sum(text_table2[,2])) + (text_table2[4,2]/sum(text_table2[,2])), 4)
+```
+
+## Part 2
+
+Extend your program to calculate the probability of two words occurring adjacent to each other. It should take in a document, and two words (say the and for) and compute the probability of each of the words occurring in the document and the joint probability of both of them occurring together. The order of the two words is not important.
+
+```{r}
+#create empty vector
+my_comb_text <- vector()
+#create table with combinations of words
+for(i in 1:length(my_text)-1){
+  my_comb_text[i] <- paste(my_text[i], my_text[i+1], sep=" ")
+}
+my_comb_table <- table(my_comb_text)
+my_comb_table <- sort(my_comb_table, decreasing = TRUE)
+
+head(my_comb_table)
+
+#convert frequency table to a data frame with rows and columns
+comb_text_table <- data.frame(0,1,2)
+for(i in 1:length(my_comb_table)){
+  comb_text_table[i,1] <- rownames(my_comb_table)[i]
+  comb_text_table[i,2] <- as.numeric(my_comb_table[i])
+}
+comb_text_table[,3] <- comb_text_table[,2]/sum(comb_text_table[,2])
+colnames(comb_text_table) <- c("word","frequency","probability")
+kable(head(comb_text_table))
+
+#probability of a combination of words (example is sixth word set in table: 'for the')
+round(comb_text_table[6,2]/sum(comb_text_table[,2]),4)
+```

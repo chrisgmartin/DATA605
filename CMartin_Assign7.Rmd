@@ -1,0 +1,68 @@
+---
+title: "DATA 605 - Assignment 7 - Expectation, Conditional Probability"
+author: "Christopher Martin"
+date: "October 9, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: Expectation, Conditional Probability
+---
+
+# Problem Set 1
+
+This week,  you'll have only one programming assignment.  Please write a function to compute the expected value and standard deviation of an array of values.  Compare your results  with  that  of  R's **mean** and **std** functions.
+
+Now, consider that instead of being able to neatly  fit the values in memory in an array, you have an infinite stream of numbers coming by.  How would you estimate the mean and standard deviation of such a stream?  Your function should be able to return the current estimate of the mean and standard deviation at any time it is asked.  Your program should maintain these current estimates and return them back at any invocation of these functions. (Hint:  You can maintain a rolling estimate of the mean and standard deviation and allow these to slowly change over time as you see more and more new values).
+
+**The new functions:**
+```{r}
+get_mean <- function(values){
+  sum(values)/length(values)
+}
+
+get_std <- function(values){
+  avg <- sum(values)/length(values)
+  y <- c()
+  for(i in 1:length(values)){
+    y[i] <- (values[i] - avg)^2
+  }
+  sqrt(sum(y)/length(y))
+}
+```
+
+**Testing the functions and compare them to the R default functions:**
+
+```{r}
+###test1
+x <- c(1,2,3,4,5)
+get_mean(x) == mean(x)
+get_std(x) == sd(x)
+
+#the new function and the R standard function do not match
+#what is the difference between the two?
+matrix(c("New Function:", round(get_std(x),4), "R Default Function:", round(sd(x),4), "Difference:", round(get_std(x)-sd(x),4)),ncol=2, byrow=TRUE)
+```
+
+**Since the two did not match in the first simple test, could it be that there was a simple issue with the list or was it something more systematic with the functions? Let's try another test:**
+
+```{r}
+##test2
+set.seed(123)
+x <- c(rnorm(100))
+get_mean(x) == mean(x)
+get_std(x) == sd(x)
+
+#again, the two do not match. what is the difference?
+matrix(c("New Function:", round(get_std(x),4), "R Default Function:", round(sd(x),4), "Difference:", round(get_std(x)-sd(x),4)),ncol=2, byrow=TRUE)
+```

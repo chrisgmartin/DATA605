@@ -1,0 +1,142 @@
+---
+title: "DATA 605 - Assignment 8 - Bayes Theorem & Contingency Tables"
+author: "Christopher Martin"
+date: "October 16, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: "Bayes Theorem & Contingency Tables"
+---
+
+# Problem Set 1
+
+Your colleague either commutes by train or by the bus. 20 days of the month, she takes the train and the remaining 10 days she takes the bus. If she takes the train, she reaches work on time with a probability of 0.9.  If she takes the bus, she frequently gets stuck in traffic and reaches work on time with a probability of 0.5. Given that she was on time today, what is the probability that she took the bus to work today?
+
+**Bayes Theorem Forumula**
+
+$P(A|B) = (P(B|A) * P(A)) / P(B)$
+
+**P(bus|on time):**
+```{r}
+bus_days <- 10/30
+train_days <- 20/30
+bus_ontime <- 5/10
+train_ontime <- 9/10
+
+#P(bus|on time) = (P(on time|bus) * P(on time)) / P(bus)
+#P(on time|bus) = Bus Days * Bus On Time
+#P(on time) = Bus Days * Bus On Time + Train Days * Train On Time
+#P(bus) = Bus Days
+PA_B <- round(((bus_days*bus_ontime) * (bus_days*bus_ontime + train_days*train_ontime)) / bus_days,4)
+```
+
+The probability that she took the bus given that she was on time today is `r PA_B*100`%.
+
+# Problem Set 2
+
+In the Grade Network that we looked at in the notes, what happens to the probability of Difficulty of Course when you present the evidence that the received recommendation letter was good?  In addition, now present the evidence that both SAT scores were good and the letter of recommendation was good, What is the probability of the Difficulty of Course now?  You should use the gRain package in R to build your network and perform these calculations.  You may need to install RBGL package from BioConductor in R to get gRain working. See http://www.bioconductor.org/packages/release/bioc/html/RBGL.html for instructions on RBGL.
+
+**Joint Probabilty Function in the Example**
+
+P(d) = Probability of high difficulty course, P(i) = Probability of high intelligence, P(g) = Probability of good grade, P(s) = Probability of high SAT score, P(l) = probability of good letter of recommendation.
+
+$P(d,i,g,s,l) = P(d)P(i)P(g|i,d)P(s|i)P(l|g)$
+
+##Part 1
+
+**Given that the received recommendation letter was good, the probability that the course was difficult is reduced because the more difficult the course was the less likely the student performed well (a factor of receiving a good letter of recommendation).**
+
+##Part 2
+
+**Calculated Probabilities extracted from the reading, bold items being particular to the problem**
+
+Below are the probabilities of all occurrences:
+
+- P(Difficult=Low) = 0.3
+- **P(Difficult=High) = 0.7**
+- **P(Intelligence=Low) = 0.8**
+- **P(Intelligence=High) = 0.2**
+- P(SAT=Low|Intelligence=Low) = 0.9
+- P(SAT=Low|Intelligence=High) = 0.2
+- P(SAT=Low) = 0.9 * 0.8 + 0.2 * 0.2 = 0.76
+- P(SAT=High|Intelligence=Low) = 0.1
+- P(SAT=High|Intelligence=High) = 0.8
+- **P(SAT=High) = 0.1 * 0.8 + 0.8 * 0.2 = 0.24**
+- P(Grade=Low|Difficult=Low AND Intelligence=Low) = 0.6
+- P(Grade=Low|Difficult=Low AND Intelligence=High) = 0.01
+- **P(Grade=Low|Difficult=High AND Intelligence=Low) = 0.8**
+- **P(Grade=Low|Difficult=High AND Intelligence=High) = 0.1**
+- **P(Grade=Low) = (0.6 * 0.3 * 0.8) + (0.01 * 0.3 * 0.2) + (0.8 * 0.7 * 0.8) + (0.1 * 0.7 * 0.2) = 0.6066**
+- P(Grade=High|Difficult=Low AND Intelligence=Low) = 0.4
+- P(Grade=High|Difficult=Low AND Intelligence=High) = 0.99
+- **P(Grade=High|Difficult=High AND Intelligence=Low) = 0.2**
+- **P(Grade=High|Difficult=High AND Intelligence=High) = 0.9**
+- **P(Grade=High) = (0.4 * 0.3 * 0.8) + (0.99 * 0.3 * 0.2) + (0.2 * 0.7 * 0.8) + (0.9 * 0.7 * 0.2) = 0.3934**
+- P(LOR=Good|Grade=High) = 0.95
+- P(LOR=Good|Grade=Low) = 0.1
+- **P(LOR=Good) = (0.95 * 0.3934) + (0.1 * 0.6066) = 0.43439**
+- P(LOR=Bad|Grade=High) = 0.05
+- P(LOR=Bad|Grade=Low) = 0.9
+- P(LOR=Bad) = (0.05 * 0.3934) + (0.9 * 0.6066) = 0.56561
+
+**Probability of high Difficulty of Course, given a good Recommendation Letter**
+
+
+```{r}
+#Joint Probability of Difficult=High AND Intelligence=High = 0.7 * 0.2 = 0.14
+#Joint Probability of Difficult=High AND Intelligence=Low =  0.7 * 0.8 = 0.56
+
+#P(Difficult=High AND Intelligence=High|Grade=High) = 0.9 * 0.7 * 0.2 = 0.126
+#P(Difficult=High AND Intelligence=Low|Grade=High) = 0.2 * 0.7 * 0.8 = 0.112
+#P(Difficult=High|Grade=High) = 0.126 + 0.112 = 0.238
+
+#P(Difficult=High AND Intelligence=High|Grade=Low) = (0.1 * 0.14) / 0.6066 = 0.02307946
+#P(Difficult=High AND Intelligence=Low|Grade=Low) = (0.8 * 0.56) / 0.6066 = 0.7385427
+#P(Difficult=High|Grade=Low) = 0.02307946 + 0.7385427 = 0.7616222
+
+#P(Difficult=High|LOR=Good AND Grade=High) = (0.95 * 0.238) / 0.43439 = 0.5205
+#P(Difficult=High|LOR=Good AND Grade=Low) = (0.1 * 0.7616222) / 0.43439 = 0.1753314
+
+ans <- round(0.5205 + 0.1753314,4)*100
+```
+
+The probability that the course was difficult, given a good letter of recommendation is `r ans`%.
+
+**Setting up the Probability Tables using gRain**
+
+```{r warning=FALSE}
+library('gRain')
+```
+
+```{r}
+lowhigh <- c("low","high")
+
+d <- cptable(~difficult, values=c(30,70), levels=lowhigh)
+i <- cptable(~intelligence, values=c(80,20), levels=lowhigh)
+s.i <- cptable(~SAT|intelligence, values=c(90,10,20,80), levels=lowhigh)
+g.id <- cptable(~grade|intelligence:difficult, values=c(60,40,01,99,80,20,10,90), levels=lowhigh)
+l.g <- cptable(~LOR|grade, values=c(90,10,05,95), levels=lowhigh)
+
+plist <- compileCPT(list(d,i,s.i,g.id,l.g))
+pn1 <- grain(plist)
+```
+
+**Probability of high Difficulty of Course given a good Recommendation Letter AND good SAT Scores**
+
+```{r}
+ans1 <- querygrain(setEvidence(pn1, evidence=list(LOR="high")))
+ans2 <- querygrain(setEvidence(pn1, evidence=list(LOR="high",SAT="high")))
+```
+
+Using the gRain package, I can see that my initial answer to problem one (`r ans`%) was incorrect, and the correct answer was `r round(ans1$difficult[[2]]*100,2)`%. The answer to the second part (P(Difficult=High | LOR=Good AND SAT=High)) is `r round(ans2$difficult[[2]]*100,2)`%.

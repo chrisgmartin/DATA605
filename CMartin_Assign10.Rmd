@@ -1,0 +1,73 @@
+---
+title: "DATA 605 - Assignment 10 - Page Rank"
+author: "Christopher Martin"
+date: "October 30, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: "Page Rank"
+---
+
+You'll  verify  for  yourself  that  PageRank  works  by  performing  calculations  on  a  small universe of web pages. Let's use the 6 page universe that we had in the course notes.  For this directed graph, perform the following calculations in R.
+
+Form the *A* matrix.  Then, introduce *decay* and form the *B* matrix as we did in the course notes.
+
+```{r}
+A <- matrix(c(0,1/2,1/2,0,0,0,0,0,0,0,0,0,1/3,1/3,0,0,1/3,0,0,0,0,0,1/2,1/2,0,0,0,1/2,0,1/2,0,0,0,1,0,0), byrow=TRUE, ncol=6)
+decay <- 0.85
+n <- 6
+B <- decay * A + ((1-decay)/n)
+B
+```
+
+Start with a uniform rank vector *r* and perform power iterations on *B* till convergence. That is, compute the solution $r = B^n * r$. Attempt this for a sufficiently
+large *n* so that *r* actually converges.
+
+```{r}
+ri <- matrix(c(.167,.167,.167,.167,.167,.167), ncol=1)
+n <- 800
+B <- decay * A + ((1-decay)/n)
+rf <- B^n %*% ri
+rf
+#Note: This does not match the course notes
+```
+
+Compute the eigen-decomposition of *B* and verify that you indeed get an eigenvalue of 1 as the largest eigenvalue and that its corresponding eigenvector is the same vector  that  you  obtained  in  the  previous  power  iteration method. Further,  this eigenvector has all positive entries and it sums to 1.
+
+```{r}
+ei <- eigen(B)
+abs(round(sum(ei$vectors)))
+
+#Note: This calculation is incorrect but I can't spot why from the course notes
+#The rounding is really a gimmick as no value of n creates the convergence to 1
+```
+
+Use the *graph* package in R and its *page.rank* method to compute the Page Rank of the graph as given in *A*.  Note that you don't need to apply decay.  The package starts with a connected graph and applies decay internally. Verify that you do get the same PageRank vector as the two approaches above.
+
+```{r}
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("graph")
+#biocLite("Rgraphviz")
+library(graph)
+library(Rgraphviz)
+library(igraph)
+
+am.graph <- new("graphAM", adjMat=A, edgemode="directed")
+plot(am.graph, atts = list(node=list(fillcolor="lightblue"),edge=list(arrowsize=0.5)))
+
+newgraph <- make_graph(~ A-B, A-C, C-A, C-B, C-E, D-E, D-F, E-D, E-F, F-D)
+page_rank(newgraph, damping =0.85)
+```
+
+

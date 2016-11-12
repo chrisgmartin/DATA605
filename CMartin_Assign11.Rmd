@@ -1,0 +1,93 @@
+---
+title: "DATA 605 - Assignment 11 - Linear Regression in R"
+author: "Christopher Martin"
+date: "November 6, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: no
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: yes
+    toc: no
+title2: "Linear Regression in R"
+---
+
+```{r echo=FALSE}
+library(knitr)
+```
+
+Using R's *lm* function, perform regression analysis and measure the significance of the independent variables for the following two data sets. In the first case, you are evaluating the statement that we hear that Maximum Heart Rate of a person is related to their age by the following equation:
+
+$MaxH R = 220 - Age$
+
+You have been given the following sample:
+
+```{r echo=FALSE}
+dfAGE <- data.frame(18,23,25,35,65,54,34,56,72,19,23,42,18,39,37)
+colnames(dfAGE) <- c("")
+rownames(dfAGE) <- c("Age")
+dfMAXHR <- data.frame(202,186,187,180,156,169,174,172,153,199,193,174,198,183,178)
+colnames(dfMAXHR) <- c("")
+rownames(dfMAXHR) <- c("MaxHR")
+df <- rbind(dfAGE, dfMAXHR)
+colnames(df) <- c(1:15)
+```
+
+```{r}
+kable(df)
+```
+
+
+Perform a linear regression analysis fitting the Max Heart Rate to Age using the *lm* function in R. What is the resulting equation? Is the effect of Age on Max HR significant? What is the significance level? Please also plot the fitted relationship between Max HR and Age.
+
+```{r}
+dft <- as.data.frame(t(df))
+dflm <- lm(MaxHR ~ Age, dft)
+summary(dflm)
+```
+
+- The linear regression has an Adjusted R-squared of 0.9021, with Age being a significant independent variable. For every year added (Age +1), there is a decreased Heart Rate of 0.79773 bpm (assumed MaxHR is in beats-per-minute).
+
+```{r}
+plot(dflm)
+```
+
+
+Using the *Auto* data set from Assignment 5 perform a Linear Regression analysis using *mpg* as the dependent variable and the other 4 (*displacement*, *horsepower*, *weight*, *acceleration*) as independent variables. What is the final linear regression fit equation? Which of the 4 independent variables have a significant impact on *mpg*? What are their corresponding significance levels? What are the standard errors on each of the coeficients? Please perform this experiment in two ways. First take any random 40 data points from the entire auto data sample and perform the linear regression fit and measure the 95% confidence intervals. Then, take the entire data set (all 392 points) and perform linear regression and measure the 95% confidence intervals. Please report the resulting fit equation, their significance values and confidence intervals for each of the two runs.
+
+```{r}
+autompgdata <- as.data.frame(read.table('https://raw.githubusercontent.com/chrisgmartin/DATA605/master/auto-mpg.data'))
+colnames(autompgdata) <- c("mpg", "displacement", "horsepower", "weight", "acceleration")
+```
+
+- Using a sample set of 40:
+
+```{r}
+set.seed(123)
+autosample <- autompgdata[sample(nrow(autompgdata), size=40, replace=FALSE),]
+autosamplelm <- lm(mpg ~ displacement + horsepower + weight + acceleration, data=autosample)
+summary(autosamplelm)$coefficients
+summary(autosamplelm)$adj.r.squared
+confint(autosamplelm)[1,1:2]
+```
+
+- Using the population:
+
+```{r}
+autompglm <- lm(mpg ~ displacement + horsepower + weight + acceleration, data=autompgdata)
+summary(autompglm)$coefficients
+summary(autompglm)$adj.r.squared
+confint(autompglm)
+
+
+```
+
+- Comparing the population intercept `r summary(autompglm)$coefficients[1]` to the sample intercept of `r summary(autosamplelm)$coefficients[1]` there is a clear and significant difference between the two methods which is even more evident when looking at the 95% confidence interval for the intercept. For the population the intercept has an absolute difference of `r confint(autompglm)[1,1]-confint(autompglm)[1,2]` while the sample has an absolute difference of `r confint(autosamplelm)[1,1]-confint(autosamplelm)[1,2]`. Among other, more obvious reasons, the population is a better estimator for prediction but it is interesting to see the difference.
+- Comparing the Adjusted R-squared, however, doesn't show such a dramatic difference. The population Adjusted R-squared is `r summary(autompglm)$adj.r.squared` while the sample has an Adjusted R-squared of `r summary(autosamplelm)$adj.r.squared`. The population is still a better predictor but the fact that the sample has such a high Adjusted R-squared is surprising.
