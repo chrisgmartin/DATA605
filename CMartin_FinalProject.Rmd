@@ -1,0 +1,598 @@
+---
+title: "House Prices: Advanced Regression Techniques"
+author: "Chris G Martin"
+date: "December 16, 2016"
+fontsize: 11pt
+output:
+  html_document:
+    fig_caption: yes
+    force_captions: yes
+    highlight: pygments
+    number_sections: no
+    theme: united
+    toc: yes
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: xelatex
+    number_sections: no
+    toc: yes
+---
+
+#Objective
+
+From the [Kaggle Competition Details](https://www.kaggle.com/c/house-prices-advanced-regression-techniques):
+
+Ask a home buyer to describe their dream house, and they probably won't begin with the height of the basement ceiling or the proximity to an east-west railroad. But this playground competition's dataset proves that much more influences price negotiations than the number of bedrooms or a white-picket fence.
+
+With 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, this competition challenges you to predict the final price of each home.
+
+The potential for creative feature engineering provides a rich opportunity for fun and learning. This dataset lends itself to advanced regression techniques like random forests and gradient boosting with the popular XGBoost library. We encourage Kagglers to create benchmark code and tutorials on Kernels for community learning. Top kernels will be awarded swag prizes at the competition close. 
+
+#Setting Up The Data
+
+##Gathering Training Set Informaiton
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(knitr)
+library(MASS)
+library(corrplot)
+library(psych)
+library(rpart)
+library(dummies)
+library(dplyr)
+library(faraway) #VIF / sumary
+library(caret) #confusion matrix
+library(boot) #glm model diagnostics
+library(pROC) #ROC
+library(pls)
+```
+
+As a high level overview, the following is a list of the columns in the dataset, format type, and sample of the observations:
+
+```{r echo=FALSE}
+train <- read.csv("https://raw.githubusercontent.com/chrisgmartin/DATA605/master/train.csv", stringsAsFactors=FALSE)
+test <- read.csv("https://raw.githubusercontent.com/chrisgmartin/DATA605/master/test.csv", stringsAsFactors=FALSE)
+
+str(train)
+```
+
+One noteable column that is missing is a variable for total square footage of the house (not lot size). This will be added in as *TotalSF* and is simply the sum of square feet of the basement (**TotalBsmtSF**), living area (**GrLivArea**), garage (**GarageArea**), porch or deck (**WoodDeckSF**, **OpenPorchSF**, **EnclosedPorch**, **X3SsnPorch**, and **ScreenPorch**) and pool area (**PoolArea**),
+
+```{r echo=FALSE}
+train$TotalSF <- train$TotalBsmtSF + train$GrLivArea + train$GarageArea + train$WoodDeckSF + train$OpenPorchSF + train$EnclosedPorch + train$X3SsnPorch + train$ScreenPorch + train$PoolArea
+test$TotalSF <- test$TotalBsmtSF + test$GrLivArea + test$GarageArea + test$WoodDeckSF + test$OpenPorchSF + test$EnclosedPorch + test$X3SsnPorch + test$ScreenPorch + test$PoolArea
+```
+
+##Data Exploration: Price to Square Feet
+
+Examining the sales price of the training set (which will be used as the independent **x** variable for the testing set), it appears to be a right-skewed distribution around $150,000.
+
+```{r echo=FALSE}
+hist(train$SalePrice, main="Sale Price", col="deepskyblue3", breaks=20, xlab="")
+```
+
+In fact, if we look at the quantiles of this distribution we can see that the spread between the 3rd quartile and max sales price are much more extreme than the spread between the second and third.
+
+```{r echo=FALSE}
+quantile(train$SalePrice)[3]
+```
+
+A special request was made to select a single dependent (explanatory) **y** variable, and for that the newly created variable for *TotalSF* (total square footage of the house area) is used:
+
+```{r echo=FALSE}
+hist(train$TotalSF, main="Total House Area Square Footage", col="darkolivegreen", breaks=20, xlab="")
+```
+
+###Probability
+
+Similar to the sales price, total square footage quantiles show this pattern.
+
+```{r echo=FALSE}
+quantile(train$TotalSF)
+```
+
+If we use the quantiles information for probability, we can create the following table showing various probabilities:
+
+```{r echo=FALSE}
+x3 <- train[train$SalePrice < quantile(train$SalePrice, names=FALSE)[4], ]
+x1 <- x3[x3$TotalSF < quantile(train$TotalSF, names=FALSE)[3], ]
+x2 <- x3[x3$TotalSF > quantile(train$TotalSF, names=FALSE)[3], ]
+x6 <- train[train$SalePrice > quantile(train$SalePrice, names=FALSE)[4], ]
+x4 <- x6[x6$TotalSF < quantile(train$TotalSF, names=FALSE)[3], ]
+x5 <- x6[x6$TotalSF > quantile(train$TotalSF, names=FALSE)[3], ]
+x7 <- train[train$TotalSF < quantile(train$TotalSF, names=FALSE)[3], ]
+x8 <- train[train$TotalSF > quantile(train$TotalSF, names=FALSE)[3], ]
+x9 <- 1
+
+probtable <- matrix(round(c(nrow(x1)/nrow(train),nrow(x2)/nrow(train),nrow(x3)/nrow(train),nrow(x4)/nrow(train),nrow(x5)/nrow(train),nrow(x6)/nrow(train),nrow(x7)/nrow(train),nrow(x8)/nrow(train),x9),4), ncol=3, byrow=TRUE)
+colnames(probtable) <- c("y<50%", "y>50%", "Total")
+rownames(probtable) <- c("x<75%", "x>75%", "Total")
+kable(probtable, caption="Probability")
+
+counttable <- matrix(round(c(nrow(x1),nrow(x2),nrow(x3),nrow(x4),nrow(x5),nrow(x6),nrow(x7),nrow(x8),nrow(train)),4), ncol=3, byrow=TRUE)
+colnames(counttable) <- c("y<50%", "y>50%", "Total")
+rownames(counttable) <- c("x<75%", "x>75%", "Total")
+kable(counttable, caption ="Counts")
+```
+
+Mathmatically, we can check if $P(A|B)=P(A)P(B)$ --a check for indepedence, where A = P(X) > 75% and B = P(Y) < 50%--and evalute it by running a Chi Square test for association.
+
+```{r echo=FALSE}
+x1 <- train[train$TotalSF < quantile(train$TotalSF, names=FALSE)[3], ]
+x2 <- x1[x1$SalePrice < quantile(train$SalePrice, names=FALSE)[4], ]
+x3 <- nrow(x2)/nrow(train)
+x4 <- train[train$SalePrice < quantile(train$SalePrice, names=FALSE)[4], ]
+x5 <- nrow(x4)/nrow(train)
+x6 <- train[train$TotalSF < quantile(train$TotalSF, names=FALSE)[3], ]
+x7 <- nrow(x6)/nrow(train)
+
+mathchecktable <- matrix(c(x3, x5, x7, x5*x7), ncol=4)
+colnames(mathchecktable) <- c('P(A given B)', 'P(A)', 'P(B)', 'P(A)P(B)')
+kable(mathchecktable, caption ="Mathmatic Check is False")
+
+chitbl <- train[c('SalePrice', 'TotalSF')]
+chisq.test(chitbl)
+```
+
+Since P(A|B) was false and the p-value for the Chi Squared test being significantly less (in practical terms, and no statistical terms) than the 0.05 significance level, we can reject the null hypothesis that the variables are independent and conclude that the sales price may be a dependent variable of the total square footage of the house.
+
+###Descriptive and Inferential Statistics
+
+Using a scatterplot we can see a clear correlation between the two variables:
+
+```{r echo=FALSE}
+scatter.smooth(x=train$SalePrice, y=train$TotalSF, col="deepskyblue3", xlab='Sales Price', ylab='Square Feet', lpars=list(col = "darkolivegreen", lwd = 3, lty = 3))
+
+descriptcorr <- cor(x=train$SalePrice, y=train$TotalSF)
+
+ttestci1 <- t.test(train$SalePrice, train$TotalSF, paired=TRUE)
+ttestci2 <- t.test(train$SalePrice, train$TotalSF, conf.level=0.99)
+```
+
+The correlation is actually fairly high at `r descriptcorr`, and a 95% confidence interval for the difference of the mean is between `r ttestci1$conf.int[1]` and `r ttestci1$conf.int[2]`. A 99% confidence interval for the difference of the mean is between `r ttestci2$conf.int[1]` and `r ttestci2$conf.int[2]`.
+
+Continuing with these two variables we have a correlation matrix as follows:
+
+```{r echo=FALSE}
+M <- cbind(train$SalePrice, train$TotalSF)
+V <- cor(M)
+corrV <- V[1,2]
+V
+```
+
+
+```{r echo=FALSE}
+fV <- fisherz(V[1,2])
+sterfV <- 1/(length(train$SalePrice) - 3)
+lowfV <- fV - (2.57583 * sterfV)
+highfV <- fV - (2.57583 * sterfV)
+lowfR <- fisherz2r(lowfV)
+highfR <- fisherz2r(highfV)
+```
+
+To test the hypothesis that the correlation between the two variables is 0 (at 99% confidence), our confidence interval is between `r lowfR` and `r highfR`, in which 0 is certainly not a value. We can be 99% confident that due to this result, we can reject the null hypothesis that the correlation between **SalePrice** and **TotalSF** is 0.
+
+###Linear Algebra and Correlation
+
+Using the previously created correlation matrix, we can find the inverse as:
+
+```{r echo=FALSE}
+solve(V)
+```
+
+Multiplying the correlation matrix by it's inverse:
+
+```{r echo=FALSE}
+V * solve(V)
+```
+
+and it's inverse by the correlation matrix:
+
+```{r echo=FALSE}
+solve(V) * V
+```
+
+We see that the matrix and it's inverse are both symmetric, and adding the multiplied rows together sum to 1. For a Principle Component Analysis (PCA), we'll need a new dataset which (in this example) has been called **train_numeric** and contains only numeric, quanititative fields (dates and observational data such as quality and condition are removed) and excludes the sales price as our response variable (thus the analysis is unsupervised).
+
+```{r echo=FALSE}
+train_numeric <- train[sapply(train,is.numeric)]
+train_numeric <- train_numeric[,-which(names(train_numeric) %in% c('Id', 'MSSubClass', 'PaveStreet', 'StreetPave', 'OverallQual', 'OverallCond', 'YearBuilt', 'YearRemodAdd', 'GarageYrBlt', 'MoSold', 'YrSold', 'SalePrice'))]
+pca.train <- train_numeric
+```
+
+In the new data set there are `r length(pca.train)` different components and we want to reduce it to an optimal number. The PCA analysis will assist in finding an optimal number of componants. Here is a plot of the PCA:
+
+```{r echo=FALSE}
+is.na(pca.train) <- sapply(pca.train, is.infinite)
+
+pca.train$LotFrontage[is.na(pca.train$LotFrontage)] <- 0
+
+prin_comp <- prcomp(na.omit(pca.train), scale = T)
+biplot(prin_comp, scale = 0)
+```
+
+Though it may be more simple to see the proportion of the variance explained by the number of components:
+
+```{r echo=FALSE}
+std_dev <- prin_comp$sdev
+pr_var <- std_dev^2
+prop_varex <- pr_var/sum(pr_var)
+plot(prop_varex, xlab = "Principal Component",
+             ylab = "Proportion of Variance Explained",
+             type = "b")
+```
+
+In the chart above, about 33 components explain almost 100% of the variance (likely 99.8%) but only about 23 components explain near 98% of the variance. On a cumulative scale:
+
+```{r echo=FALSE}
+plot(cumsum(prop_varex), xlab = "Principal Component",
+              ylab = "Cumulative Proportion of Variance Explained",
+              type = "b")
+```
+
+It appears the at about 30 components the explained variance levels out to close to 99%. Let's try the same analysis using all of the columns and replacing categorical variables with dummy variables:
+
+```{r echo=FALSE}
+train_chr <- train[sapply(train, is.character)]
+pca.train.dummy <- dummy.data.frame(train, names=colnames(train_chr))
+pca.test.dummy <- dummy.data.frame(test, names=colnames(train_chr))
+is.na(pca.train.dummy) <- sapply(pca.train.dummy, is.infinite)
+is.na(pca.test.dummy) <- sapply(pca.test.dummy, is.infinite)
+
+pca.train.dummy$GarageYrBlt[is.na(pca.train.dummy$GarageYrBlt)] <- 0
+pca.test.dummy$GarageYrBlt[is.na(pca.test.dummy$GarageYrBlt)] <- 0
+pca.train.dummy$LotFrontage[is.na(pca.train.dummy$LotFrontage)] <- 0
+pca.test.dummy$LotFrontage[is.na(pca.test.dummy$LotFrontage)] <- 0
+pca.train.dummy$MasVnrArea[is.na(pca.train.dummy$MasVnrArea)] <- 0
+pca.test.dummy$MasVnrArea[is.na(pca.test.dummy$MasVnrArea)] <- 0
+
+prin_comp <- prcomp(pca.train.dummy, scale = T)
+biplot(prin_comp, scale = 0)
+```
+
+```{r echo=FALSE}
+std_dev <- prin_comp$sdev
+pr_var <- std_dev^2
+prop_varex <- pr_var/sum(pr_var)
+plot(prop_varex, xlab = "Principal Component",
+             ylab = "Proportion of Variance Explained",
+             type = "b")
+```
+
+```{r echo=FALSE}
+plot(cumsum(prop_varex), xlab = "Principal Component",
+              ylab = "Cumulative Proportion of Variance Explained",
+              type = "b")
+```
+
+It's difficult to tell, but perhaps at around 30 components 98.7% of the variance can be explained.
+
+###Calculus-Based Probability and Statistics
+
+```{r echo=FALSE}
+fit1 <- fitdistr(train$SalePrice, "exponential")
+```
+
+For a 1-Parameter Exponential Distribution, using the **SalePrice** as the parameter, the optimal lambda is given as `r fit1$estimate`. Our current density appears as such:
+
+```{r echo=FALSE}
+hist(train$SalePrice, freq = FALSE, breaks = 100, xlim = c(0, quantile(train$SalePrice, 0.99)), main='Density of Sales Price')
+curve(dexp(x, rate = fit1$estimate), col = "red", add = TRUE)
+```
+
+Comparing this distribtuion to a sample of 1000 variables (rather than the `r length(train$SalePrice)` variables) and using an exponential distribution to fit the data, our density is:
+
+```{r echo=FALSE}
+trainsample <- train$SalePrice
+trainsample <- sample(trainsample, 1000)
+trainrate <- fitdistr(trainsample, 'exponential')
+ex <- rexp(trainsample, rate = trainrate$estimate)
+fit2 <- fitdistr(ex, "exponential")
+hist(ex, freq = FALSE, breaks = 100, xlim = c(0, quantile(ex, 0.99)), main='Density of 1,000Samples Exponential Distribution')
+curve(dexp(x, rate = fit2$estimate), col = "red", add = TRUE)
+```
+
+With this exponential distribution, our CDF appears as:
+
+```{r echo=FALSE}
+ex.ordered <- sort(ex)
+ex.ecdf <- ecdf(ex.ordered)
+plot(ex.ecdf, xlab = 'Sale Price', main = 'Exponential CDF of 1000 Random Samples')
+
+a <- mean(ex)
+error <- qt(0.975, df=999)*sd(ex)/sqrt(1000)
+left1 <- a-error
+right1 <- a+error
+
+a <- mean(train$SalePrice)
+error <- qt(0.975, df=(length(train$SalePrice)-1))*sd(train$SalePrice)/sqrt(length(train$SalePrice))
+left2 <- a-error
+right2 <- a+error
+```
+
+with a 5th percentile of `r quantile(ex, .05)` and 95th percentile of `r quantile(ex, .95)`, as compared with our original 5th percentile of `r quantile(train$SalePrice, .05)` and 95th percentile of `r quantile(train$SalePrice, .95)`. The 95% confidence interval of the exponential distribution is `r left1` to `r right1` compared to the original data interval of `r left2` to `r right2`.
+
+#Data Exploration
+
+##Missing Values
+
+Within the datasets, there are some missing values which need to be cleaned before they can be used as a predictive measure. Simply removing the rows would not solve the challenge of prediction for all values, and removing the columns could lead to unintended consequences such as losing a vital predictive variable. Fortunately, the datasets (both the test and training sets) included only have missing values for integer columns and the values appear to be missing due to a missing 'feature' in the houses/lots themselves. For example, a missing value for **LotFrontage** could mean that there is no lot frontage on the property and a missing value for **GarageYrBuilt** could mean that there is no garage on the property and therefore no value is recorded (and is missing). For Year columns, missing values are assumed to be the same year as the **YearBuilt** column (for simpilicity) and the other integer values are set to 0 to indicate they have no size, except for **LotArea** which is set to the **TotalSF** value.
+
+```{r echo=FALSE}
+train$GarageYrBlt[is.na(train$GarageYrBlt)] <- train$YearBuilt[is.na(train$GarageYrBlt)]
+train$LotArea[is.na(train$LotArea)] <- train$TotalSF[is.na(train$GarageYrBlt)]
+test$GarageYrBlt[is.na(test$GarageYrBlt)] <- test$YearBuilt[is.na(test$GarageYrBlt)]
+
+train[is.na(train)] <- 0
+test[is.na(test)] <- 0
+```
+
+##Setting Categorial Values to Binary Values
+
+With categorical values, linear regression can be eased by converting them into binary (1 = Yes, 0 = No). Since the dataset includes a large number of categorical columns with their own unique attributes, I elected to only convert some of the easiest columns to binary: **Street** and **Alley** were given a 1 if they were paved, **Utilities** were given a 1 if it was all public utilities with 0 given to those houses with partial or no public utility, **LotShape** was given a 1 if it was regular, **CentralAir** was given a 1 if it has central air, and **PavedDrive** was given a 1 if it was true. Also, it is possible to see if the house was remodeled (where **YearBuilt** does not equal **YearRemodAdd**), and remodelled houses were given a 1.
+
+However, R contains a dummy package which will automatically convert categorical values to binary dummy variables greatly reducing the burden of doing this manually.
+
+```{r echo=FALSE}
+train.dummy <- dummy.data.frame(train)
+test.dummy <- dummy.data.frame(test)
+```
+
+##Correlations
+
+Finding correlations between variables is a critical element because highly correlated variables could potentially skew the prediction and make the variable appear to be more significant than it is in actuality.
+
+```{r echo=FALSE}
+
+train_numeric[is.na(train_numeric)] <- 0
+corrs <- cor(train_numeric)
+corrrows <- apply(corrs, 1, function(x) sum(x > 0.5| x < -0.5) > 1)
+corrs <- corrs[corrrows, corrrows]
+corrplot.mixed(corrs)
+```
+
+##Data Skews
+
+Skewed data can also throw off an analysis, with some assembly required. With the exception of the Garage Area, the other three variables in the chart below show the heavy skew on square footage. There are a high number of houses with zero lot area, very few houses with >150 square feet of Lot Frontage (feet of street connected to the property), and comparably very few houses with a vaneer. Given the nature of these variables it doesn't make sense to alorithmically 'correct' the skew and instead think of them as an added feature (e.g. a vaneer area adds $X to the Sales Price in the regression.) **LotFrontage**, though, will be logged for better results and centered skew.
+
+```{r echo=FALSE}
+train.skewed <- pca.train.dummy
+test.skewed <- pca.test.dummy
+
+old.par <- par(mfrow=c(1, 2))
+par(mfrow=c(2, 2))
+
+hist(train_numeric$LotFrontage, main="Lot Frontage SF", col="deepskyblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$LotArea, main="Lot Area SF", col="darkolivegreen",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$MasVnrArea, main="Vaneer Area SF", col="salmon4",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$GarageArea, main="Garage Area SF", col="slateblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+
+train.skewed$LotFrontage <- log(train.skewed$LotFrontage)
+test.skewed$LotFrontage <- log(test.skewed$LotFrontage)
+```
+
+The next set shows several houses with unfinished basements, and few with finished basements. These two fields will remain untouched but taking a square root of Unfinished Basement SF and Total Basement SF centers the data and slightly 'normalizes' it.
+
+```{r echo=FALSE}
+par(mfrow=c(2, 2))
+hist(train_numeric$BsmtFinSF1, main="Finished Basement 1 SF", col="deepskyblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$BsmtFinSF2, main="Finished Basement 2 SF", col="darkolivegreen",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$BsmtUnfSF, main="Unfinished Basement SF", col="salmon4",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$TotalBsmtSF, main="Total Basement SF", col="slateblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+
+train.skewed$BsmtUnfSF <- sqrt(train.skewed$BsmtUnfSF)
+test.skewed$BsmtUnfSF <- sqrt(test.skewed$BsmtUnfSF)
+train.skewed$TotalBsmtSF <- sqrt(train.skewed$TotalBsmtSF)
+test.skewed$TotalBsmtSF <- sqrt(test.skewed$TotalBsmtSF)
+```
+
+Next we see that there are very few if any low quality finished living areas in these houses (not many fixer-upers are there) and only some houses with a second story living area. A log conversion centers the ground living area and first floor square foot measures.
+
+```{r echo=FALSE}
+par(mfrow=c(2, 2))
+hist(train_numeric$X1stFlrSF, main="First Floor SF", col="deepskyblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$X2ndFlrSF, main="Second Floor SF", col="darkolivegreen",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$LowQualFinSF, main="Low Quality Finish SF", col="salmon4",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$GrLivArea, main="Ground Living Area SF", col="slateblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+
+train.skewed$X1stFlrSF <- log(train.skewed$X1stFlrSF)
+test.skewed$X1stFlrSF <- log(test.skewed$X1stFlrSF)
+train.skewed$GrLivArea <- log(train.skewed$GrLivArea)
+test.skewed$GrLivArea <- log(test.skewed$GrLivArea)
+```
+
+On the porch front, there is a clear skew in that very few houses have a porch or deck.
+
+```{r echo=FALSE}
+par(mfrow=c(2, 2))
+hist(train_numeric$WoodDeckSF, main="Wood Deck SF", col="deepskyblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$OpenPorchSF, main="Porch SF", col="darkolivegreen",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$EnclosedPorch, main="Enclosed Porch SF", col="salmon4",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$X3SsnPorch, main="Three Season Porch SF", col="slateblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+```
+
+Finally, a square root conversion for total house square feet will center and 'normalize' the variable.
+
+```{r echo=FALSE}
+hist(train_numeric$ScreenPorch, main="Screen Porch SF", col="deepskyblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$PoolArea, main="Pool Area", col="darkolivegreen",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$MiscVal, main="Value of Misc Items", col="salmon4",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+hist(train_numeric$TotalSF, main="Total SF", col="slateblue3",breaks=20)
+box(col = 'black')
+grid(NA, 5,col="black")
+
+train.skewed$TotalSF <- sqrt(train.skewed$TotalSF)
+test.skewed$TotalSF <- sqrt(test.skewed$TotalSF)
+```
+
+##Re-Clean Missing or Inf Variables
+
+In the conversion process (due to logs and square roots) some NA or Inf variables were created, and need to be corrected.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+is.na(train.skewed) <- sapply(train.skewed, is.infinite)
+is.na(test.skewed) <- sapply(test.skewed, is.infinite)
+```
+
+#Building Model Buildings
+
+##Model 1: Forward Stepwise Binary Logistic Model
+
+Using the Stepwise Binary Logistic Model to predict (and testing against the training data) 
+
+```{r echo=FALSE, message=FALSE, results='hide'}
+trainingdata_STEP1 <- train.skewed %>% dplyr::select(-Id)
+all <- lm(SalePrice~.,na.omit(trainingdata_STEP1))
+stepResults_STEP1 <- step(all, direction="forward")
+```
+
+Current optimal results from stepwise method with diagnostic plots:
+
+```{r echo=FALSE}
+#stepResults
+stepResults_STEP1_sum <- sumary(stepResults_STEP1)
+stepResults_STEP1_sum$adj.r.squared
+```
+
+This model gives us an Adjusted R-Squared of `r stepResults_STEP1_sum$adj.r.squared`. Not bad. Let's see if we can improve it.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#test/train
+n <- dim(trainingdata_STEP1)[1]
+set.seed(1306)
+testsize <- sample(n, round(n/4))
+data.train <- trainingdata_STEP1[-testsize,]
+data.test <- trainingdata_STEP1[testsize,]
+
+data.train$SalePrice <- as.factor(data.train$SalePrice)
+data.test$SalePrice <- as.factor(data.test$SalePrice)
+logitModelStepwise <- glm(SalePrice ~., family=binomial(link='probit'), data=data.train)
+summary.logitmodel <- summary(logitModelStepwise)
+summary.logitmodel
+```
+
+##Model 2: Selective Forward Stepwise Binary Logistic Model
+
+In this model I'll attempt another forward stepwise binary logistic model on a select number of columns.
+
+```{r echo=FALSE, message=FALSE, results='hide'}
+#Multiple linear regression using stepwise methodology
+
+trainingdata_STEP2 <- train.skewed %>% dplyr::select(-Id) %>% dplyr::select(SalePrice, LotFrontage, OverallQual, OverallCond, TotalBsmtSF, X1stFlrSF, X2ndFlrSF, GrLivArea, BsmtFullBath, BsmtHalfBath, FullBath, HalfBath, TotRmsAbvGrd, GarageFinishFin)
+all <- lm(SalePrice~.,na.omit(trainingdata_STEP2))
+stepResults_STEP2 <- step(all, direction="forward")
+```
+
+Current optimal results from stepwise method with diagnostic plots:
+
+```{r echo=FALSE, warning=FALSE}
+stepResults_STEP2_sum <- sumary(stepResults_STEP2)
+```
+
+This model gives us an Adjusted R-Squared of `r stepResults_STEP2_sum$adj.r.squared`
+```{r echo=FALSE, message=FALSE}
+#test/train
+n <- dim(trainingdata_STEP2)[1]
+set.seed(1307)
+testsize <- sample(n, round(n/4))
+data.train <- trainingdata_STEP2[-testsize,]
+data.test <- trainingdata_STEP2[testsize,]
+
+data.train$SalePrice <- as.factor(data.train$SalePrice)
+data.test$SalePrice <- as.factor(data.test$SalePrice)
+logitModelStepwise2 <- glm(SalePrice ~., family=binomial(link='probit'), data=data.train)
+summary(logitModelStepwise2)
+```
+
+Discussion of model: 
+
+This model has a significantly lower Adjusted R-Squared and will not be considered viable.
+
+##Model 3: PCA
+
+
+```{r echo=FALSE}
+pca.model <- train.skewed
+pca.model <- pca.model %>% dplyr::select(-Id,-UtilitiesNoSeWa,-Condition2RRAe,-Condition2RRAn,-Condition2RRNn,-HouseStyle2.5Fin,-HouseStyle2.5Fin,-RoofMatlClyTile,-RoofMatlMembran,-RoofMatlMetal,-RoofMatlRoll,-Exterior1stImStucc,-Exterior1stStone,-Exterior2ndOther,-HeatingFloor,-HeatingOthW,-ElectricalMix,-ElectricalNA,-GarageQualEx,-PoolQCFa,-MiscFeatureTenC)
+pca.model$LotFrontage[is.na(pca.model$LotFrontage)] <- 0
+
+pcr_model <- pcr(SalePrice~., data=pca.model, scale=TRUE)
+```
+
+```{r echo=FALSE}
+validationplot(pcr_model)
+```
+
+```{r echo=FALSE}
+summary(pcr_model)
+```
+
+```{r echo=FALSE}
+n <- dim(pca.model)[1]
+set.seed(1307)
+testsize <- sample(n, round(n/4))
+data.train <- pca.model[-testsize,]
+data.test <- pca.model[testsize,]
+
+pcr_model <- pcr(SalePrice~., data = pca.model, scale =TRUE)
+
+pcr_pred <- lm(pcr_model, data.test, ncomp = 241)
+
+summary(pcr_pred)
+```
+
+Discussion of model: 
+
+The benefits of this model is a slightly higher Adjusted R-Squared and a practical reasoning behind the selection of variables which the first model (stepwise method) did not give. This is the model I've selected for the final prediction.
+
+#Predicting Housing Prices
+
+```{r echo=FALSE, warning=FALSE}
+pcr_pred <- predict(lm(pcr_model), test.skewed)
+pcr_prd <- as.numeric(as.vector(pcr_pred))
+
+pcr_prd[is.na(pcr_prd)] <- median(pcr_prd, na.omit(pcr_prd))
+
+prd <- cbind(test.skewed$Id, pcr_prd)
+colnames(prd) <- c('Id', 'SalePrice')
+write.csv(prd, file='./cgmsubmission.csv')
+```
